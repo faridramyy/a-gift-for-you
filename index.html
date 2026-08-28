@@ -1,0 +1,1436 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
+    />
+    <title>A gift for you</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Serif+Display:ital@0;1&family=Nunito:wght@600;800;900&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --ink: #2b1917;
+        --pink: #f35c79;
+        --cream: #fff5df;
+        --gold: #ffd24b;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        overflow: hidden;
+        background: #ffd6c3;
+        color: var(--ink);
+        font-family: Nunito, sans-serif;
+      }
+      #scene {
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+      }
+      .ui {
+        position: relative;
+        z-index: 1;
+        width: min(480px, 95vw);
+        height: 100vh;
+        padding: 40px 0;
+        margin-left: clamp(30px, 7vw, 120px);
+        display: flex;
+        align-items: center;
+        pointer-events: none;
+      }
+      .panel {
+        pointer-events: auto;
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+      }
+      .kicker {
+        font: 500 12px "DM Mono";
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: #a54252;
+        margin: 0 0 14px;
+      }
+      .panel h1 {
+        font: normal clamp(44px, 4.5vw, 68px)/0.95 "DM Serif Display";
+        letter-spacing: -0.04em;
+        margin: 0;
+      }
+      .panel h1 i {
+        color: #cd3c57;
+      }
+      .panel > p {
+        line-height: 1.5;
+        font-size: 16px;
+        margin: 18px 0;
+      }
+      .hint {
+        min-height: 60px;
+        padding: 14px 18px;
+        background: #fff9e9;
+        border: 2px solid var(--ink);
+        box-shadow: 5px 5px 0 var(--ink);
+        font-size: 14px;
+        font-weight: 900;
+      }
+      .hint b {
+        display: block;
+        font: 500 11px "DM Mono";
+        letter-spacing: 0.1em;
+        color: #aa4352;
+        margin-bottom: 4px;
+      }
+      .entry {
+        display: flex;
+        gap: 10px;
+        margin-top: 18px;
+        width: 100%;
+      }
+      .entry input {
+        flex: 1;
+        padding: 14px 16px;
+        border: 2px solid var(--ink);
+        background: #fffdf8;
+        font: 14px "DM Mono";
+        outline: none;
+      }
+      .entry input:focus {
+        box-shadow: 4px 4px 0 var(--gold);
+      }
+      button {
+        border: 2px solid var(--ink);
+        background: var(--gold);
+        box-shadow: 4px 4px 0 var(--ink);
+        font: 900 13px Nunito;
+        padding: 0 22px;
+        cursor: pointer;
+        transition: transform 0.1s;
+      }
+      button:active {
+        transform: translate(2px, 2px);
+        box-shadow: 2px 2px 0 var(--ink);
+      }
+      .message {
+        min-height: 22px;
+        font-size: 13px;
+        font-weight: 900;
+        color: #a4374c;
+        margin: 10px 0;
+      }
+      .steps {
+        display: flex;
+        gap: 8px;
+      }
+      .steps i {
+        width: 32px;
+        height: 8px;
+        border: 2px solid var(--ink);
+        background: #fee4ca;
+      }
+      .steps i.done {
+        background: #55a875;
+      }
+      .drag {
+        margin-top: 24px;
+        font: 11px "DM Mono";
+        letter-spacing: 0.08em;
+        color: #885159;
+      }
+
+      /* Transition Overlay */
+      .fade-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 2;
+        background: #000;
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .finish {
+        position: fixed;
+        z-index: 3;
+        inset: 0;
+        display: none;
+        place-items: center;
+        text-align: center;
+        background: radial-gradient(circle, #fff8e9, #ffcfbd 55%, #ec8092);
+        opacity: 0;
+      }
+      .finish.show {
+        display: grid;
+      }
+
+      @media (max-width: 768px) {
+        body {
+          overflow-y: auto;
+          overflow-x: hidden;
+        }
+        #scene {
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100vw;
+          height: 50vh;
+          z-index: 0;
+        }
+        .ui {
+          position: relative;
+          width: 100%;
+          height: auto;
+          min-height: 100vh;
+          margin-left: 0;
+          padding: 45vh 16px 32px 16px;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+        }
+        .panel {
+          max-width: 440px;
+          padding: 22px 18px;
+          border-radius: 16px;
+          background: rgba(255, 243, 229, 0.92);
+          backdrop-filter: blur(10px);
+          border: 2px solid var(--ink);
+          box-shadow: 0 10px 30px rgba(155, 63, 74, 0.18);
+          text-align: center;
+        }
+        .kicker {
+          font-size: 10px;
+          margin-bottom: 8px;
+        }
+        .panel h1 {
+          font-size: clamp(32px, 8vw, 46px);
+        }
+        .panel > p {
+          font-size: 14px;
+          margin: 12px 0 16px;
+        }
+        .hint {
+          font-size: 13px;
+          min-height: auto;
+          padding: 12px;
+          box-shadow: 3px 3px 0 var(--ink);
+          text-align: left;
+        }
+        .entry {
+          justify-content: center;
+          gap: 8px;
+          margin-top: 14px;
+        }
+        .entry input {
+          font-size: 13px;
+          padding: 12px;
+        }
+        .entry button {
+          padding: 0 16px;
+          font-size: 12px;
+        }
+        .message {
+          font-size: 12px;
+          margin: 8px 0;
+        }
+        .steps {
+          justify-content: center;
+        }
+        .drag {
+          display: block;
+          margin-top: 14px;
+          font-size: 9px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="scene"></div>
+    <div class="fade-overlay" id="fadeOverlay"></div>
+    <main class="ui" id="ui">
+      <section class="panel">
+        <p class="kicker">A top-secret birthday delivery</p>
+        <h1>
+          Warning:<br />this gift contains<br /><i>unreasonable</i><br />amounts
+          of love.
+        </h1>
+        <p>Three tiny secrets unlock the present. Rotate it while you think.</p>
+        <div class="hint" id="hint"><b>CLUE #1</b>Question 1</div>
+        <div class="entry">
+          <input
+            id="password"
+            autocomplete="off"
+            placeholder="type password…"
+            enterkeyhint="done"
+          /><button id="unlock">UNLOCK</button>
+        </div>
+        <p class="message" id="message"></p>
+        <div class="steps"><i></i><i></i><i></i></div>
+        <p class="drag">DRAG THE BOX TO LOOK ALL AROUND</p>
+      </section>
+    </main>
+
+    <div class="finish" id="finish"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.13.0/dist/gsap.min.js"></script>
+    <script type="module">
+      import * as THREE from "https://esm.sh/three@0.181.1";
+      import { OrbitControls } from "https://esm.sh/three@0.181.1/examples/jsm/controls/OrbitControls.js";
+
+      const PASS_1 = "1",
+        PASS_2 = "2",
+        PASS_3 = "3";
+      const secrets = [
+        {
+          pass: PASS_1,
+          hint: "Question 1",
+          wrong: "Nope. That password has less sparkle than you do.",
+        },
+        {
+          pass: PASS_2,
+          hint: "Question 2",
+          wrong:
+            "Somewhere an offended slice of pizza just sighed dramatically.",
+        },
+        {
+          pass: PASS_3,
+          hint: "Question 3",
+          wrong: "Almost—but that one belongs in the password hall of fame.",
+        },
+      ];
+
+      const host = document.querySelector("#scene");
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color("#ffd6c3");
+      scene.fog = new THREE.Fog("#ffd6c3", 10, 24);
+
+      const camera = new THREE.PerspectiveCamera(
+        42,
+        innerWidth / getViewportHeight(),
+        0.01,
+        100,
+      );
+
+      const renderer = new THREE.WebGLRenderer({
+        antialias: true,
+        alpha: true,
+      });
+      renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+      renderer.setSize(innerWidth, getViewportHeight());
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      host.appendChild(renderer.domElement);
+
+      const controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.06;
+      controls.minDistance = 6;
+      controls.maxDistance = 16;
+
+      function getViewportHeight() {
+        const sceneEl = document.querySelector("#scene");
+        if (sceneEl && sceneEl.style.height === "100vh") {
+          return window.innerHeight;
+        }
+        return innerWidth <= 768
+          ? window.innerHeight * 0.5
+          : window.innerHeight;
+      }
+
+      scene.add(new THREE.HemisphereLight(0xfff6da, 0xa63f5c, 2.4));
+      const key = new THREE.DirectionalLight(0xffffff, 3.2);
+      key.position.set(5, 8, 6);
+      key.castShadow = true;
+      key.shadow.mapSize.set(1024, 1024);
+      scene.add(key);
+      const fill = new THREE.DirectionalLight(0xff9ec0, 1.1);
+      fill.position.set(-5, 3, -4);
+      scene.add(fill);
+
+      const floor = new THREE.Mesh(
+        new THREE.PlaneGeometry(30, 30),
+        new THREE.ShadowMaterial({ color: 0x8b4350, opacity: 0.18 }),
+      );
+      floor.rotation.x = -Math.PI / 2;
+      floor.position.y = -1.62;
+      floor.receiveShadow = true;
+      scene.add(floor);
+
+      const gift = new THREE.Group();
+      gift.position.y = 0;
+      scene.add(gift);
+
+      const pink = new THREE.MeshStandardMaterial({
+        color: 0xf55e7a,
+        roughness: 0.38,
+        metalness: 0.03,
+        side: THREE.DoubleSide,
+      });
+      const pinkSide = new THREE.MeshStandardMaterial({
+        color: 0xdf3f60,
+        roughness: 0.42,
+        side: THREE.DoubleSide,
+      });
+      const yellow = new THREE.MeshStandardMaterial({
+        color: 0xffd244,
+        roughness: 0.32,
+        metalness: 0.05,
+        side: THREE.DoubleSide,
+      });
+
+      function mesh(geo, mat, pos = [0, 0, 0]) {
+        const m = new THREE.Mesh(geo, mat);
+        m.position.set(...pos);
+        m.castShadow = m.receiveShadow = true;
+        return m;
+      }
+
+      // Hollow Gift Box
+      const hollowBase = new THREE.Group();
+      const wallThick = 0.15;
+      const boxW = 4,
+        boxH = 3,
+        boxD = 4;
+      const rThick = 0.02;
+
+      hollowBase.add(
+        mesh(new THREE.BoxGeometry(boxW, wallThick, boxD), pink, [
+          0,
+          -boxH / 2,
+          0,
+        ]),
+      );
+      hollowBase.add(
+        mesh(new THREE.BoxGeometry(wallThick, boxH, boxD), pink, [
+          -boxW / 2 + wallThick / 2,
+          0,
+          0,
+        ]),
+      );
+      hollowBase.add(
+        mesh(new THREE.BoxGeometry(wallThick, boxH, boxD), pink, [
+          boxW / 2 - wallThick / 2,
+          0,
+          0,
+        ]),
+      );
+      hollowBase.add(
+        mesh(
+          new THREE.BoxGeometry(boxW - 2 * wallThick, boxH, wallThick),
+          pink,
+          [0, 0, boxD / 2 - wallThick / 2],
+        ),
+      );
+      hollowBase.add(
+        mesh(
+          new THREE.BoxGeometry(boxW - 2 * wallThick, boxH, wallThick),
+          pink,
+          [0, 0, -boxD / 2 + wallThick / 2],
+        ),
+      );
+
+      hollowBase.add(
+        mesh(new THREE.BoxGeometry(0.48, boxH, rThick), yellow, [
+          0,
+          0,
+          boxD / 2 + rThick / 2,
+        ]),
+      );
+      hollowBase.add(
+        mesh(new THREE.BoxGeometry(0.48, boxH, rThick), yellow, [
+          0,
+          0,
+          -boxD / 2 - rThick / 2,
+        ]),
+      );
+      hollowBase.add(
+        mesh(new THREE.BoxGeometry(rThick, boxH, 0.48), yellow, [
+          boxW / 2 + rThick / 2,
+          0,
+          0,
+        ]),
+      );
+      hollowBase.add(
+        mesh(new THREE.BoxGeometry(rThick, boxH, 0.48), yellow, [
+          -boxW / 2 - rThick / 2,
+          0,
+          0,
+        ]),
+      );
+      hollowBase.add(
+        mesh(new THREE.BoxGeometry(0.48, rThick, boxD + 2 * rThick), yellow, [
+          0,
+          -boxH / 2 - wallThick / 2 - rThick / 2,
+          0,
+        ]),
+      );
+      hollowBase.add(
+        mesh(new THREE.BoxGeometry(boxW + 2 * rThick, rThick, 0.48), yellow, [
+          0,
+          -boxH / 2 - wallThick / 2 - rThick / 2,
+          0,
+        ]),
+      );
+
+      hollowBase.position.y = -0.1;
+      gift.add(hollowBase);
+
+      // Memory Book (Laying Flat inside box)
+      const bookGroup = new THREE.Group();
+      bookGroup.position.set(0, -1.25, 0);
+
+      const coverMat = new THREE.MeshStandardMaterial({
+        color: 0x7c2637,
+        roughness: 0.3,
+      });
+      const pageMat = new THREE.MeshStandardMaterial({
+        color: 0xfffaed,
+        roughness: 0.8,
+      });
+      const heartMat = new THREE.MeshStandardMaterial({ color: 0xffd244 });
+
+      const bookCoverBottom = mesh(
+        new THREE.BoxGeometry(1.6, 0.08, 2.2),
+        coverMat,
+        [0, -0.15, 0],
+      );
+
+      const bookCoverTop = mesh(
+        new THREE.BoxGeometry(1.6, 0.08, 2.2),
+        coverMat,
+        [0, 0.15, 0],
+      );
+      const bookPagesFlat = mesh(
+        new THREE.BoxGeometry(1.5, 0.22, 2.1),
+        pageMat,
+        [0.02, 0, 0],
+      );
+
+      const bookSpineFlat = mesh(
+        new THREE.BoxGeometry(0.08, 0.38, 2.2),
+        coverMat,
+        [-0.8, 0, 0],
+      );
+
+      const heartFlat = mesh(
+        new THREE.BoxGeometry(0.35, 0.02, 0.35),
+        heartMat,
+        [0, 0.2, 0],
+      );
+      heartFlat.rotation.y = Math.PI / 4;
+
+      const bookTopCoverPivot = new THREE.Group();
+      bookTopCoverPivot.position.set(-0.8, 0.15, 0);
+      bookCoverTop.position.set(0.8, 0, 0);
+      heartFlat.position.set(0.8, 0.05, 0);
+      bookTopCoverPivot.add(bookCoverTop, heartFlat);
+
+      bookGroup.add(
+        bookCoverBottom,
+        bookTopCoverPivot,
+        bookPagesFlat,
+        bookSpineFlat,
+      );
+      gift.add(bookGroup);
+
+      // Lid Halves
+      function lidHalf(side) {
+        const pivot = new THREE.Group();
+        pivot.position.set(side * 2, 1.26, 0);
+        gift.add(pivot);
+        const half = new THREE.Group();
+        half.position.x = -side * 1;
+        pivot.add(half);
+        const slab = mesh(
+          new THREE.BoxGeometry(2.08, 0.28, 4.12),
+          pinkSide,
+          [0, 0.14, 0],
+        );
+        half.add(slab);
+        half.add(
+          mesh(new THREE.BoxGeometry(0.42, 0.31, 4.2), yellow, [
+            -side * 1,
+            0.15,
+            0,
+          ]),
+        );
+        half.add(
+          mesh(new THREE.BoxGeometry(2.15, 0.31, 0.42), yellow, [0, 0.15, 0]),
+        );
+        return { pivot, half };
+      }
+
+      const leftLid = lidHalf(-1),
+        rightLid = lidHalf(1);
+      const bow = new THREE.Group();
+      bow.position.set(0, 1.68, 0);
+      gift.add(bow);
+
+      const wingGeo = new THREE.SphereGeometry(0.58, 20, 16);
+      const leftWing = mesh(wingGeo, yellow, [-0.52, 0.12, 0]);
+      leftWing.scale.set(1, 0.28, 0.62);
+      leftWing.rotation.z = -0.18;
+      const rightWing = mesh(wingGeo, yellow, [0.52, 0.12, 0]);
+      rightWing.scale.set(1, 0.28, 0.62);
+      rightWing.rotation.z = 0.18;
+      const knot = mesh(
+        new THREE.SphereGeometry(0.25, 20, 20),
+        yellow,
+        [0, 0.16, 0],
+      );
+      const tailA = mesh(
+        new THREE.ConeGeometry(0.18, 0.72, 4),
+        yellow,
+        [-0.28, -0.14, 0.04],
+      );
+      tailA.rotation.z = 0.45;
+      const tailB = mesh(
+        new THREE.ConeGeometry(0.18, 0.72, 4),
+        yellow,
+        [0.28, -0.14, 0.04],
+      );
+      tailB.rotation.z = -0.45;
+      bow.add(leftWing, rightWing, knot, tailA, tailB);
+
+      const tag = mesh(
+        new THREE.BoxGeometry(1.35, 0.72, 0.05),
+        new THREE.MeshStandardMaterial({ color: 0xfff6df }),
+        [0, -0.18, 2.05],
+      );
+      tag.rotation.x = -0.04;
+      gift.add(tag);
+
+      const starGroup = new THREE.Group();
+      const starGeo = new THREE.SphereGeometry(0.07, 12, 12);
+      for (let i = 0; i < 28; i++) {
+        const s = mesh(starGeo, i % 2 ? yellow : pink, [
+          THREE.MathUtils.randFloatSpread(10),
+          THREE.MathUtils.randFloat(-0.5, 5),
+          THREE.MathUtils.randFloatSpread(8),
+        ]);
+        starGroup.add(s);
+      }
+      scene.add(starGroup);
+
+      function resize() {
+        const h = getViewportHeight();
+        camera.aspect = innerWidth / h;
+        camera.updateProjectionMatrix();
+        renderer.setSize(innerWidth, h);
+        positionForScreen();
+      }
+      addEventListener("resize", resize);
+
+      function render() {
+        controls.update();
+        renderer.render(scene, camera);
+        requestAnimationFrame(render);
+      }
+      render();
+
+      const input = document.querySelector("#password"),
+        hint = document.querySelector("#hint"),
+        message = document.querySelector("#message"),
+        dots = [...document.querySelectorAll(".steps i")];
+      let step = 0;
+
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          message.textContent = "Please tap the UNLOCK button to submit!";
+          gsap.fromTo(
+            input,
+            { x: -7 },
+            { x: 0, duration: 0.35, ease: "elastic.out(1,0.25)" },
+          );
+        }
+      });
+
+      function wrong() {
+        message.textContent = secrets[step].wrong;
+        gsap.fromTo(
+          input,
+          { x: -7 },
+          { x: 0, duration: 0.35, ease: "elastic.out(1,0.25)" },
+        );
+      }
+
+      function openStep() {
+        dots[step].classList.add("done");
+        const isMobile = innerWidth <= 768;
+        const panel = document.querySelector(".panel");
+
+        if (isMobile) {
+          if (step === 2) {
+            const sceneEl = document.querySelector("#scene");
+            sceneEl.style.height = "100vh";
+            resize();
+
+            gsap.to("#ui", {
+              opacity: 0,
+              duration: 0.4,
+              ease: "power2.out",
+              onComplete: () => {
+                document.querySelector("#ui").style.display = "none";
+              },
+            });
+          } else {
+            gsap.to(camera.position, {
+              x: 0,
+              y: 5.2,
+              z: 9.8,
+              duration: 0.8,
+              ease: "power2.inOut",
+            });
+            gsap.to(controls.target, {
+              x: 0,
+              y: 0,
+              z: 0,
+              duration: 0.8,
+              ease: "power2.inOut",
+            });
+
+            gsap.to(panel, {
+              y: 120,
+              opacity: 0.2,
+              duration: 0.4,
+              ease: "power2.out",
+              onComplete: () => {
+                gsap.to(panel, { y: 0, opacity: 1, duration: 0.4, delay: 0.8 });
+              },
+            });
+          }
+        }
+
+        if (step === 0) {
+          const tl = gsap.timeline();
+          tl.to(bow.position, {
+            y: 3.2,
+            duration: 0.4,
+            ease: "power2.out",
+          })
+            .to(
+              bow.rotation,
+              {
+                x: 0.2,
+                z: 0.8,
+                duration: 0.45,
+                ease: "power1.inOut",
+              },
+              0,
+            )
+            .to(
+              bow.position,
+              {
+                y: 5,
+                x: 1.5,
+                duration: 0.5,
+                ease: "power2.in",
+              },
+              0.35,
+            )
+            .to(
+              bow.scale,
+              {
+                x: 0.01,
+                y: 0.01,
+                z: 0.01,
+                duration: 0.3,
+                ease: "power2.in",
+              },
+              0.45,
+            )
+            .call(() => gift.remove(bow));
+
+          message.textContent = "Bow removed. Serious unwrapping has begun.";
+        }
+
+        if (step === 1) {
+          const tl = gsap.timeline();
+          tl.to(rightLid.pivot.position, {
+            y: 1.4,
+            duration: 0.2,
+            ease: "power1.out",
+          })
+            .to(
+              rightLid.pivot.rotation,
+              {
+                z: -THREE.MathUtils.degToRad(125),
+                duration: 1.2,
+                ease: "back.out(1.2)",
+              },
+              "-=0.1",
+            )
+            .to(
+              rightLid.pivot.position,
+              {
+                y: 1.26,
+                duration: 0.4,
+                ease: "bounce.out",
+              },
+              "-=0.4",
+            );
+
+          message.textContent = "Right lid unlocked. One last secret!";
+        }
+
+        if (step === 2) {
+          if (!isMobile) {
+            gsap.to(document.querySelector("#ui"), {
+              opacity: 0,
+              duration: 0.5,
+              ease: "power2.out",
+              onComplete: () => {
+                document.querySelector("#ui").style.display = "none";
+              },
+            });
+          }
+
+          const tl = gsap.timeline({ onComplete: focusOnBookFromTop });
+
+          tl.to(
+            controls.target,
+            {
+              x: 0,
+              y: 0,
+              z: 0,
+              duration: 0.8,
+              ease: "power2.inOut",
+            },
+            0,
+          )
+            .to(leftLid.pivot.position, {
+              y: 1.4,
+              duration: 0.2,
+              ease: "power1.out",
+            })
+            .to(
+              leftLid.pivot.rotation,
+              {
+                z: THREE.MathUtils.degToRad(125),
+                duration: 1.2,
+                ease: "back.out(1.2)",
+              },
+              "-=0.1",
+            )
+            .to(
+              leftLid.pivot.position,
+              {
+                y: 1.26,
+                duration: 0.4,
+                ease: "bounce.out",
+              },
+              "-=0.4",
+            );
+
+          message.textContent = "Both lids are open. Tap the book inside!";
+        }
+
+        step++;
+        input.value = "";
+        if (step < 3) {
+          hint.innerHTML =
+            "<b>CLUE #" + (step + 1) + "</b>" + secrets[step].hint;
+        } else {
+          input.disabled = true;
+          document.querySelector("#unlock").disabled = true;
+          controls.enabled = false;
+        }
+      }
+
+      function tryPass() {
+        if (!input.value.trim()) return;
+        if (input.value.trim().toLowerCase() === secrets[step].pass) openStep();
+        else wrong();
+      }
+
+      document.querySelector("#unlock").onclick = tryPass;
+
+      let isWaitingForBookClick = false;
+
+      function focusOnBookFromTop() {
+        gsap
+          .timeline()
+          .to(camera.position, {
+            x: 0,
+            y: 12,
+            z: 0.01,
+            duration: 1.6,
+            ease: "power2.inOut",
+          })
+          .to(
+            controls.target,
+            { x: 0, y: -1.25, z: 0, duration: 1.6, ease: "power2.inOut" },
+            "<",
+          )
+          .call(() => {
+            isWaitingForBookClick = true;
+          });
+      }
+
+      // --- Interactive 3D Memory Book System ---
+      let interactiveBookGroup = null;
+      let pages = [];
+      let isFlipping = false;
+      const interactiveBookRaycaster = new THREE.Raycaster();
+
+      const memories = [
+        {
+          emoji: "🌷",
+          title: "Where It All Began",
+          text: "Every grand adventure starts with a single step and a bright smile. Here's to day one of forever.",
+        },
+        {
+          emoji: "🍕",
+          title: "Late Night Pizza & Laughter",
+          text: "The simplest moments become our fondest memories. Cold slices, warm hearts, and endless late-night talks.",
+        },
+        {
+          emoji: "☕",
+          title: "Cozy Morning Coffee",
+          text: "Waking up knowing we get to share another beautiful day together. Nothing beats that feeling.",
+        },
+        {
+          emoji: "✈️",
+          title: "Our Unforgettable Trip",
+          text: "Exploring new horizons, getting lost in back alleys, and capturing unforgettable sunsets.",
+        },
+        {
+          emoji: "🎂",
+          title: "Happy Birthday Beautiful!",
+          isEnding: true,
+          text: "Happy birthday, beautiful! The rest of your memories are waiting in the gift box. ♥",
+        },
+      ];
+
+      function createCoverCanvasTexture() {
+        const canvas = document.createElement("canvas");
+        canvas.width = 512;
+        canvas.height = 712;
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#7c2637";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.strokeStyle = "#ffd244";
+        ctx.lineWidth = 6;
+        ctx.strokeRect(20, 20, canvas.width - 40, canvas.height - 40);
+
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.colorSpace = THREE.SRGBColorSpace;
+        return texture;
+      }
+
+      function createCoverInnerTexture() {
+        const canvas = document.createElement("canvas");
+        canvas.width = 512;
+        canvas.height = 712;
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#7c2637";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.colorSpace = THREE.SRGBColorSpace;
+        return texture;
+      }
+
+      function createBlankWhiteTexture() {
+        const canvas = document.createElement("canvas");
+        canvas.width = 512;
+        canvas.height = 712;
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.colorSpace = THREE.SRGBColorSpace;
+        return texture;
+      }
+
+      function createPageCanvasTexture(content, pageNum) {
+        const canvas = document.createElement("canvas");
+        canvas.width = 512;
+        canvas.height = 712;
+        const ctx = canvas.getContext("2d");
+
+        ctx.fillStyle = "#fff8e9";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.strokeStyle = "#e2d2b4";
+        ctx.lineWidth = 4;
+        ctx.strokeRect(16, 16, canvas.width - 32, canvas.height - 32);
+
+        if (!content) {
+          ctx.fillStyle = "#a54252";
+          ctx.font = "italic 32px 'DM Serif Display', serif";
+          ctx.textAlign = "center";
+          ctx.fillText(
+            "Our Memory Journal",
+            canvas.width / 2,
+            canvas.height / 2,
+          );
+          const texture = new THREE.CanvasTexture(canvas);
+          texture.colorSpace = THREE.SRGBColorSpace;
+          return texture;
+        }
+
+        if (content.isEnding) {
+          ctx.fillStyle = "#a54252";
+          ctx.font = "500 16px 'DM Mono', monospace";
+          ctx.textAlign = "center";
+          ctx.fillText("YOU MADE IT INSIDE", canvas.width / 2, 140);
+
+          ctx.fillStyle = "#2b1917";
+          ctx.font = "42px 'DM Serif Display', serif";
+          ctx.fillText("Happy birthday,", canvas.width / 2, 220);
+
+          ctx.fillStyle = "#cd3c57";
+          ctx.font = "italic 48px 'DM Serif Display', serif";
+          ctx.fillText("beautiful!", canvas.width / 2, 280);
+
+          ctx.fillStyle = "#2b1917";
+          ctx.font = "bold 20px 'Nunito', sans-serif";
+          const words =
+            "The rest of your memories are waiting in the gift box. ♥".split(
+              " ",
+            );
+          let line = "";
+          let y = 380;
+          for (let i = 0; i < words.length; i++) {
+            let testLine = line + words[i] + " ";
+            if (ctx.measureText(testLine).width > 380 && i > 0) {
+              ctx.fillText(line, canvas.width / 2, y);
+              line = words[i] + " ";
+              y += 32;
+            } else {
+              line = testLine;
+            }
+          }
+          ctx.fillText(line, canvas.width / 2, y);
+
+          ctx.font = "44px sans-serif";
+          ctx.fillText("🧸  🌷  ❤️  🌼", canvas.width / 2, 580);
+
+          const texture = new THREE.CanvasTexture(canvas);
+          texture.colorSpace = THREE.SRGBColorSpace;
+          return texture;
+        }
+
+        ctx.fillStyle = "#ffd6c3";
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = "#2b1917";
+        ctx.fillRect(66, 60, 380, 280);
+        ctx.strokeRect(66, 60, 380, 280);
+
+        ctx.font = "110px sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(content.emoji, canvas.width / 2, 200);
+
+        ctx.textBaseline = "alphabetic";
+        ctx.fillStyle = "#2b1917";
+        ctx.font = "bold 28px 'DM Serif Display', serif";
+        ctx.fillText(content.title, canvas.width / 2, 400);
+
+        ctx.strokeStyle = "#cd3c57";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(canvas.width / 2 - 40, 420);
+        ctx.lineTo(canvas.width / 2 + 40, 420);
+        ctx.stroke();
+
+        ctx.fillStyle = "#4a2d2b";
+        ctx.font = "bold 20px 'Nunito', sans-serif";
+        const words = content.text.split(" ");
+        let line = "";
+        let y = 470;
+        for (let i = 0; i < words.length; i++) {
+          let testLine = line + words[i] + " ";
+          if (ctx.measureText(testLine).width > 380 && i > 0) {
+            ctx.fillText(line, canvas.width / 2, y);
+            line = words[i] + " ";
+            y += 30;
+          } else {
+            line = testLine;
+          }
+        }
+        ctx.fillText(line, canvas.width / 2, y);
+
+        ctx.fillStyle = "#a54252";
+        ctx.font = "16px 'DM Mono', monospace";
+        ctx.fillText(`— ${pageNum} —`, canvas.width / 2, 665);
+
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.colorSpace = THREE.SRGBColorSpace;
+        return texture;
+      }
+
+      function updatePageHeights() {
+        const total = pages.length;
+        let leftCount = 0;
+        let rightCount = 0;
+
+        for (let i = 0; i < total; i++) {
+          if (pages[i].angle > Math.PI / 2) {
+            leftCount++;
+          } else {
+            rightCount++;
+          }
+        }
+
+        let currentLeft = 0;
+        let currentRight = rightCount;
+
+        for (let i = 0; i < total; i++) {
+          const p = pages[i];
+          if (p.angle > Math.PI / 2) {
+            p.pivot.position.y = currentLeft * 0.008;
+            currentLeft++;
+          } else {
+            currentRight--;
+            p.pivot.position.y = currentRight * 0.008;
+          }
+        }
+      }
+
+      function buildInteractiveBook() {
+        interactiveBookGroup = new THREE.Group();
+        const bookWidth = 2.4;
+        const bookHeight = 3.2;
+
+        const coverMaterial = new THREE.MeshStandardMaterial({
+          color: 0x7c2637,
+          roughness: 0.3,
+          side: THREE.DoubleSide,
+        });
+
+        // Spine
+        const spineMesh = mesh(
+          new THREE.BoxGeometry(0.1, 0.12, bookHeight),
+          coverMaterial,
+          [0, -0.05, 0],
+        );
+        interactiveBookGroup.add(spineMesh);
+
+        // 1 Cover Leaf + Memories Count + 1 Back Cover Leaf
+        const totalPagePairs = memories.length + 2;
+        pages = [];
+
+        let memoryIdx = 0;
+        let pageNumCounter = 1;
+
+        const outerCoverTex = createCoverCanvasTexture();
+        const innerCoverTex = createCoverInnerTexture();
+        const whiteTex = createBlankWhiteTexture();
+
+        for (let i = 0; i < totalPagePairs; i++) {
+          const pagePivot = new THREE.Group();
+
+          let frontMat, backMat;
+
+          if (i === 0) {
+            // Front Cover Leaf
+            frontMat = new THREE.MeshStandardMaterial({
+              map: outerCoverTex,
+              roughness: 0.4,
+              side: THREE.FrontSide,
+            });
+            backMat = new THREE.MeshStandardMaterial({
+              map: innerCoverTex,
+              roughness: 0.4,
+              side: THREE.FrontSide,
+            });
+          } else if (i === totalPagePairs - 1) {
+            // Back Cover Leaf
+            frontMat = new THREE.MeshStandardMaterial({
+              map: innerCoverTex,
+              roughness: 0.4,
+              side: THREE.FrontSide,
+            });
+            backMat = new THREE.MeshStandardMaterial({
+              map: outerCoverTex,
+              roughness: 0.4,
+              side: THREE.FrontSide,
+            });
+          } else {
+            // Inner Memory Pages: Right Side gets memory content, Back Side (Left leaf when turned) is strictly white
+            const frontContent = memories[memoryIdx++];
+            const frontTex = createPageCanvasTexture(
+              frontContent,
+              pageNumCounter++,
+            );
+
+            frontMat = new THREE.MeshStandardMaterial({
+              map: frontTex,
+              roughness: 0.7,
+              side: THREE.FrontSide,
+            });
+            backMat = new THREE.MeshStandardMaterial({
+              map: whiteTex,
+              roughness: 0.7,
+              side: THREE.FrontSide,
+            });
+          }
+
+          const leafGeo = new THREE.PlaneGeometry(bookWidth, bookHeight);
+
+          // Front side of leaf facing UP (Right side content)
+          const frontMesh = new THREE.Mesh(leafGeo, frontMat);
+          frontMesh.rotation.x = -Math.PI / 2;
+          frontMesh.position.set(bookWidth / 2, 0.001, 0);
+          frontMesh.castShadow = true;
+          frontMesh.receiveShadow = true;
+
+          // Back side of leaf facing DOWN (Left side turned leaf - pure white)
+          const backMesh = new THREE.Mesh(leafGeo, backMat);
+          backMesh.rotation.x = Math.PI / 2;
+          backMesh.rotation.z = Math.PI;
+          backMesh.position.set(bookWidth / 2, -0.001, 0);
+          backMesh.castShadow = true;
+          backMesh.receiveShadow = true;
+
+          const pageMeshGroup = new THREE.Group();
+          pageMeshGroup.add(frontMesh, backMesh);
+
+          // Add yellow heart rhombus strictly to Front Cover leaf ONLY
+          if (i === 0) {
+            const heartMat = new THREE.MeshStandardMaterial({
+              color: 0xffd244,
+            });
+            const heartMesh = mesh(
+              new THREE.BoxGeometry(0.5, 0.02, 0.5),
+              heartMat,
+              [bookWidth / 2, 0.015, 0],
+            );
+            heartMesh.rotation.y = Math.PI / 4;
+            pageMeshGroup.add(heartMesh);
+          }
+
+          pagePivot.add(pageMeshGroup);
+
+          frontMesh.userData = { pageIndex: i, side: "right" };
+          backMesh.userData = { pageIndex: i, side: "left" };
+
+          interactiveBookGroup.add(pagePivot);
+
+          pages.push({
+            pivot: pagePivot,
+            meshGroup: pageMeshGroup,
+            angle: 0,
+            targetAngle: 0,
+          });
+        }
+
+        updatePageHeights();
+
+        interactiveBookGroup.position.set(0, 0, 0);
+        scene.add(interactiveBookGroup);
+        interactiveBookGroup.visible = false;
+      }
+
+      buildInteractiveBook();
+
+      function flipToNextPage() {
+        if (isFlipping) return;
+
+        const pageToFlip = pages.find((p) => p.angle < Math.PI / 2);
+        if (!pageToFlip) return;
+
+        isFlipping = true;
+
+        // Lift current page during animation to clear all stacked pages
+        pageToFlip.pivot.position.y = pages.length * 0.008 + 0.05;
+
+        gsap.to(pageToFlip.pivot.rotation, {
+          z: Math.PI,
+          duration: 1.2,
+          ease: "power2.inOut",
+          onUpdate: () => {
+            pageToFlip.angle = pageToFlip.pivot.rotation.z;
+          },
+          onComplete: () => {
+            isFlipping = false;
+            updatePageHeights();
+          },
+        });
+      }
+
+      function flipToPrevPage() {
+        if (isFlipping) return;
+
+        const pagesOnLeft = pages.filter((p) => p.angle > Math.PI / 2);
+        if (pagesOnLeft.length === 0) return;
+        const pageToFlip = pagesOnLeft[pagesOnLeft.length - 1];
+
+        isFlipping = true;
+
+        // Lift current page during animation to clear all stacked pages
+        pageToFlip.pivot.position.y = pages.length * 0.008 + 0.05;
+
+        gsap.to(pageToFlip.pivot.rotation, {
+          z: 0,
+          duration: 1.2,
+          ease: "power2.inOut",
+          onUpdate: () => {
+            pageToFlip.angle = pageToFlip.pivot.rotation.z;
+          },
+          onComplete: () => {
+            isFlipping = false;
+            updatePageHeights();
+          },
+        });
+      }
+
+      function onBookClicked() {
+        isWaitingForBookClick = false;
+
+        const overlay = document.querySelector("#fadeOverlay");
+        const tl = gsap.timeline();
+
+        // 1. Open cover of tiny box book
+        tl.to(bookTopCoverPivot.rotation, {
+          z: THREE.MathUtils.degToRad(160),
+          duration: 0.9,
+          ease: "power2.out",
+        })
+          // 2. Dive camera deep into the book pages
+          .to(
+            camera.position,
+            {
+              x: 0.02,
+              y: -1.24,
+              z: 0.01,
+              duration: 1.6,
+              ease: "power3.in",
+            },
+            "-=0.3",
+          )
+          .to(
+            camera,
+            {
+              fov: 15,
+              duration: 1.6,
+              ease: "power3.in",
+              onUpdate: () => camera.updateProjectionMatrix(),
+            },
+            "<",
+          )
+          // 3. Fade overlay to black as camera enters
+          .to(
+            overlay,
+            {
+              opacity: 1,
+              duration: 0.6,
+              ease: "power2.in",
+            },
+            "-=0.6",
+          )
+          // 4. Hide gift box & stars, enable interactive memory book model
+          .call(() => {
+            gift.visible = false;
+            starGroup.visible = false;
+            interactiveBookGroup.visible = true;
+
+            controls.target.set(0, 0, 0);
+            controls.update();
+            positionForScreen();
+          })
+          // 5. Fade out overlay smoothly to reveal the memory book
+          .to(overlay, {
+            opacity: 0,
+            duration: 0.8,
+            ease: "power2.out",
+          });
+      }
+
+      const raycaster = new THREE.Raycaster();
+      const mouse = new THREE.Vector2();
+
+      function onPointerDown(e) {
+        if (isWaitingForBookClick) {
+          mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+          mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+          raycaster.setFromCamera(mouse, camera);
+          const intersects = raycaster.intersectObjects(
+            bookGroup.children,
+            true,
+          );
+
+          if (intersects.length > 0) {
+            onBookClicked();
+          }
+          return;
+        }
+
+        if (
+          interactiveBookGroup &&
+          interactiveBookGroup.visible &&
+          !isFlipping
+        ) {
+          mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+          mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+          interactiveBookRaycaster.setFromCamera(mouse, camera);
+          const intersects = interactiveBookRaycaster.intersectObjects(
+            interactiveBookGroup.children,
+            true,
+          );
+
+          if (intersects.length > 0) {
+            const point = intersects[0].point;
+            if (point.x > 0) {
+              flipToNextPage();
+            } else {
+              flipToPrevPage();
+            }
+          }
+        }
+      }
+
+      window.addEventListener("pointerdown", onPointerDown);
+
+      function positionForScreen() {
+        if (
+          !controls.enabled &&
+          (!interactiveBookGroup || !interactiveBookGroup.visible)
+        )
+          return;
+
+        const isMobile = innerWidth <= 768;
+
+        if (interactiveBookGroup && interactiveBookGroup.visible) {
+          if (isMobile) {
+            camera.position.set(0, 9.5, 0.01);
+            camera.fov = 48;
+            interactiveBookGroup.scale.set(0.95, 0.95, 0.95);
+          } else {
+            camera.position.set(0, 7.5, 0.01);
+            camera.fov = 38;
+            interactiveBookGroup.scale.set(1.35, 1.35, 1.35);
+          }
+          camera.updateProjectionMatrix();
+          return;
+        }
+
+        if (isMobile) {
+          camera.position.set(0, 5.2, 9.8);
+          controls.target.set(0, 0, 0);
+        } else if (innerWidth <= 1040) {
+          camera.position.set(5.6, 5.25, 9.7);
+          controls.target.set(0, 0.7, 0);
+        } else {
+          camera.position.set(7, 5.8, 9.2);
+          controls.target.set(0, 0.7, 0);
+        }
+        camera.updateProjectionMatrix();
+      }
+
+      positionForScreen();
+    </script>
+  </body>
+</html>
