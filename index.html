@@ -325,6 +325,7 @@
       renderer.setSize(innerWidth, getViewportHeight());
       renderer.shadowMap.enabled = true;
       renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      renderer.domElement.style.touchAction = "none";
       host.appendChild(renderer.domElement);
 
       const controls = new OrbitControls(camera, renderer.domElement);
@@ -618,6 +619,323 @@
       }
       scene.add(starGroup);
 
+      // ---------------------------------------------------------------
+      // Interactive Foam Ball Pit — fills the open box and buries the book
+      // ---------------------------------------------------------------
+      const FOAM_COUNT = 200; // how many foam balls to simulate
+      const FOAM_RADIUS = 0.1; // ball radius (world units)
+      const FOAM_GRAVITY = 6.2; // gentle fall speed — foam is lightweight
+      const FOAM_AIR_DAMP = 0.95; // per-frame velocity damping
+      const FOAM_BOUNCE = 0.05; // how bouncy foam is on landing (low = soft)
+      // How much of the book must be uncovered before it can be pressed.
+      // Easy to tune: 0.75 = 75% of the book's surface must be visible.
+      const BOOK_UNLOCK_UNCOVERED_RATIO = 0.75;
+
+      // Interior cavity of the box, derived from the box geometry above so
+      // foam always stays perfectly contained (never clips through walls).
+      const foamInteriorHalfX = boxW / 2 - wallThick;
+      const foamInteriorHalfZ = boxD / 2 - wallThick;
+      const foamFloorY = hollowBase.position.y - boxH / 2 + wallThick / 2;
+      const foamRimY = hollowBase.position.y + boxH / 2; // open top edge
+      const foamGroundY = floor.position.y; // outside-the-box landing spot
+
+      const bookBoundsBox = new THREE.Box3().setFromObject(bookGroup);
+      const bookTopY = bookBoundsBox.max.y;
+      const bookMinX = bookBoundsBox.min.x;
+      const bookMaxX = bookBoundsBox.max.x;
+      const bookMinZ = bookBoundsBox.min.z;
+      const bookMaxZ = bookBoundsBox.max.z;
+
+      const foamGeo = new THREE.SphereGeometry(FOAM_RADIUS, 12, 8);
+      const foamMat = new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        roughness: 0.75,
+        metalness: 0,
+      });
+      const foamMesh = new THREE.InstancedMesh(foamGeo, foamMat, FOAM_COUNT);
+      foamMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      foamMesh.castShadow = true;
+      foamMesh.receiveShadow = true;
+      gift.add(foamMesh);
+
+      // Ball state lives in a plain JS array (position/velocity) — the
+      // InstancedMesh matrices are just a rendering mirror of this data.
+      const foamBalls = [];
+      for (let i = 0; i < FOAM_COUNT; i++) {
+        const x = THREE.MathUtils.randFloat(
+          -foamInteriorHalfX + FOAM_RADIUS,
+          foamInteriorHalfX - FOAM_RADIUS,
+        );
+        const z = THREE.MathUtils.randFloat(
+          -foamInteriorHalfZ + FOAM_RADIUS,
+          foamInteriorHalfZ - FOAM_RADIUS,
+        );
+        const y = THREE.MathUtils.randFloat(bookTopY + 0.2, foamRimY - 0.1);
+        foamBalls.push({
+          pos: new THREE.Vector3(x, y, z),
+          vel: new THREE.Vector3(
+            THREE.MathUtils.randFloatSpread(0.3),
+            0,
+            THREE.MathUtils.randFloatSpread(0.3),
+          ),
+          r: FOAM_RADIUS,
+        });
+      }
+
+      const foamDummy = new THREE.Object3D();
+      const foamCellSize = FOAM_RADIUS * 2.2;
+      const foamGrid = new Map();
+
+      function rebuildFoamGrid() {
+        foamGrid.clear();
+        for (let i = 0; i < foamBalls.length; i++) {
+          const b = foamBalls[i];
+          const key =
+            Math.floor(b.pos.x / foamCellSize) +
+            "_" +
+            Math.floor(b.pos.z / foamCellSize);
+          let bucket = foamGrid.get(key);
+          if (!bucket) {
+            bucket = [];
+            foamGrid.set(key, bucket);
+          }
+          bucket.push(i);
+        }
+      }
+
+      // Cheap spatial-hash broadphase + simple positional push-apart —
+      // enough for lightweight foam balls without a full physics engine.
+      function resolveFoamCollisions() {
+        for (let i = 0; i < foamBalls.length; i++) {
+          const a = foamBalls[i];
+          const cx = Math.floor(a.pos.x / foamCellSize);
+          const cz = Math.floor(a.pos.z / foamCellSize);
+          for (let ox = -1; ox <= 1; ox++) {
+            for (let oz = -1; oz <= 1; oz++) {
+              const bucket = foamGrid.get(cx + ox + "_" + (cz + oz));
+              if (!bucket) continue;
+              for (const j of bucket) {
+                if (j <= i) continue;
+                const b = foamBalls[j];
+                const dx = b.pos.x - a.pos.x;
+                const dy = b.pos.y - a.pos.y;
+                const dz = b.pos.z - a.pos.z;
+                const minDist = a.r + b.r;
+                const distSq = dx * dx + dy * dy + dz * dz;
+                if (distSq > 1e-6 && distSq < minDist * minDist) {
+                  const dist = Math.sqrt(distSq);
+                  const overlap = (minDist - dist) * 0.5;
+                  const nx = dx / dist,
+                    ny = dy / dist,
+                    nz = dz / dist;
+                  // Purely positional correction (no velocity kicks) so
+                  // resting piles settle instead of vibrating in place.
+                  a.pos.x -= nx * overlap;
+                  a.pos.y -= ny * overlap;
+                  a.pos.z -= nz * overlap;
+                  b.pos.x += nx * overlap;
+                  b.pos.y += ny * overlap;
+                  b.pos.z += nz * overlap;
+                }
+              }
+            }
+          }
+        }
+      }
+
+      function isPointInBookFootprint(x, z) {
+        return x > bookMinX && x < bookMaxX && z > bookMinZ && z < bookMaxZ;
+      }
+
+      let bookUnlocked = false;
+      let coverageCheckAccum = 0;
+
+      // Splits the book's footprint into a grid and marks a cell "covered"
+      // if a foam ball is resting on the book above that cell. Returns the
+      // fraction of the book that is currently NOT covered.
+      function computeBookUncoveredRatio() {
+        const gridX = 9,
+          gridZ = 12;
+        const cellW = (bookMaxX - bookMinX) / gridX;
+        const cellD = (bookMaxZ - bookMinZ) / gridZ;
+        const covered = new Array(gridX * gridZ).fill(false);
+
+        for (const b of foamBalls) {
+          if (b.pos.y < bookTopY - 0.04) continue; // fell off/away from book
+          if (!isPointInBookFootprint(b.pos.x, b.pos.z)) continue;
+          const cxIdx = Math.min(
+            gridX - 1,
+            Math.max(0, Math.floor((b.pos.x - bookMinX) / cellW)),
+          );
+          const czIdx = Math.min(
+            gridZ - 1,
+            Math.max(0, Math.floor((b.pos.z - bookMinZ) / cellD)),
+          );
+          covered[czIdx * gridX + cxIdx] = true;
+        }
+
+        const coveredCount = covered.reduce((s, v) => s + (v ? 1 : 0), 0);
+        return 1 - coveredCount / covered.length;
+      }
+
+      function isBookUnlocked() {
+        return bookUnlocked;
+      }
+
+      function updateFoamPhysics(dt) {
+        for (const b of foamBalls) {
+          b.vel.y -= FOAM_GRAVITY * dt;
+          b.vel.multiplyScalar(FOAM_AIR_DAMP);
+          b.pos.addScaledVector(b.vel, dt);
+
+          const r = b.r;
+
+          // The walls only block the ball while it's down in the settled
+          // pile — once lifted above it (e.g. by a wipe), nothing stops it
+          // from sliding sideways and off the edge of the box.
+          if (b.pos.y < foamFloorY + 1.1) {
+            const limitX = foamInteriorHalfX - r;
+            const limitZ = foamInteriorHalfZ - r;
+            if (b.pos.x > limitX) {
+              b.pos.x = limitX;
+              b.vel.x *= -0.25;
+            } else if (b.pos.x < -limitX) {
+              b.pos.x = -limitX;
+              b.vel.x *= -0.25;
+            }
+            if (b.pos.z > limitZ) {
+              b.pos.z = limitZ;
+              b.vel.z *= -0.25;
+            } else if (b.pos.z < -limitZ) {
+              b.pos.z = -limitZ;
+              b.vel.z *= -0.25;
+            }
+          }
+
+          const insideBoxFootprint =
+            Math.abs(b.pos.x) < foamInteriorHalfX &&
+            Math.abs(b.pos.z) < foamInteriorHalfZ;
+
+          let floorLevel;
+          if (insideBoxFootprint) {
+            floorLevel = isPointInBookFootprint(b.pos.x, b.pos.z)
+              ? bookTopY + r
+              : foamFloorY + r;
+          } else {
+            floorLevel = foamGroundY + r; // spilled outside the box
+          }
+
+          if (b.pos.y < floorLevel) {
+            b.pos.y = floorLevel;
+            b.vel.y *= -FOAM_BOUNCE;
+            b.vel.x *= 0.8;
+            b.vel.z *= 0.8;
+            // Put fully-settled balls to sleep so they stop micro-jittering.
+            if (b.vel.lengthSq() < 0.015) {
+              b.vel.set(0, 0, 0);
+            }
+          }
+        }
+
+        rebuildFoamGrid();
+        resolveFoamCollisions();
+        resolveFoamCollisions();
+        resolveFoamCollisions();
+
+        for (let i = 0; i < foamBalls.length; i++) {
+          foamDummy.position.copy(foamBalls[i].pos);
+          foamDummy.updateMatrix();
+          foamMesh.setMatrixAt(i, foamDummy.matrix);
+        }
+        foamMesh.instanceMatrix.needsUpdate = true;
+
+        coverageCheckAccum += dt;
+        if (!bookUnlocked && coverageCheckAccum > 0.15) {
+          coverageCheckAccum = 0;
+          if (computeBookUncoveredRatio() >= BOOK_UNLOCK_UNCOVERED_RATIO) {
+            bookUnlocked = true;
+            gsap.fromTo(
+              bookGroup.scale,
+              { x: 1, y: 1, z: 1 },
+              {
+                x: 1.05,
+                y: 1.05,
+                z: 1.05,
+                duration: 0.25,
+                yoyo: true,
+                repeat: 1,
+                ease: "power1.inOut",
+              },
+            );
+          }
+        }
+      }
+
+      // Wiping/brushing: a horizontal plane near the top of the foam pile
+      // is used so a mouse/touch drag maps to a world-space brush point,
+      // which then physically pushes nearby balls out of the way.
+      const foamBrushPlane = new THREE.Plane(
+        new THREE.Vector3(0, 1, 0),
+        -(foamRimY - 0.35),
+      );
+      const foamBrushRaycaster = new THREE.Raycaster();
+      const foamBrushPoint = new THREE.Vector3();
+      let lastBrushPoint = null;
+      let lastBrushTime = 0;
+
+      function brushFoamAt(clientX, clientY) {
+        const nx = (clientX / window.innerWidth) * 2 - 1;
+        const ny = -(clientY / window.innerHeight) * 2 + 1;
+        foamBrushRaycaster.setFromCamera({ x: nx, y: ny }, camera);
+        if (
+          !foamBrushRaycaster.ray.intersectPlane(foamBrushPlane, foamBrushPoint)
+        )
+          return;
+
+        const now = performance.now();
+        let velX = 0,
+          velZ = 0;
+        if (lastBrushPoint) {
+          const dt = Math.max((now - lastBrushTime) / 1000, 0.001);
+          velX = (foamBrushPoint.x - lastBrushPoint.x) / dt;
+          velZ = (foamBrushPoint.z - lastBrushPoint.z) / dt;
+        }
+
+        const BRUSH_RADIUS = 0.75;
+        for (const b of foamBalls) {
+          const dx = b.pos.x - foamBrushPoint.x;
+          const dz = b.pos.z - foamBrushPoint.z;
+          const dist = Math.hypot(dx, dz);
+          if (dist < BRUSH_RADIUS) {
+            const falloff = 1 - dist / BRUSH_RADIUS;
+            const nX = dist > 1e-4 ? dx / dist : 0;
+            const nZ = dist > 1e-4 ? dz / dist : 1;
+            // Strong outward shove + lift so balls near an edge actually
+            // clear the rim "lip" and tumble out of the box.
+            b.vel.x += (nX * 2.8 + velX * 0.75) * falloff;
+            b.vel.z += (nZ * 2.8 + velZ * 0.75) * falloff;
+            b.vel.y += 2.6 * falloff;
+            const maxSpeed = 5.5;
+            if (b.vel.lengthSq() > maxSpeed * maxSpeed) {
+              b.vel.setLength(maxSpeed);
+            }
+          }
+        }
+
+        lastBrushPoint = lastBrushPoint || new THREE.Vector3();
+        lastBrushPoint.copy(foamBrushPoint);
+        lastBrushTime = now;
+      }
+
+      // Subtle "not yet" feedback when the book is tapped too early.
+      function indicateFoamLocked() {
+        gsap.fromTo(
+          bookGroup.position,
+          { x: -0.06 },
+          { x: 0, duration: 0.4, ease: "elastic.out(1,0.3)" },
+        );
+      }
+
       function resize() {
         const h = getViewportHeight();
         camera.aspect = innerWidth / h;
@@ -627,8 +945,11 @@
       }
       addEventListener("resize", resize);
 
+      const foamClock = new THREE.Clock();
       function render() {
         controls.update();
+        const dt = Math.min(foamClock.getDelta(), 0.033);
+        updateFoamPhysics(dt);
         renderer.render(scene, camera);
         requestAnimationFrame(render);
       }
@@ -829,7 +1150,8 @@
               "-=0.4",
             );
 
-          message.textContent = "Both lids are open. Tap the book inside!";
+          message.textContent =
+            "Both lids are open. Wipe the foam away, then tap the book!";
         }
 
         step++;
@@ -1350,22 +1672,17 @@
       const raycaster = new THREE.Raycaster();
       const mouse = new THREE.Vector2();
 
+      let isPointerActive = false;
+      let pointerDownX = 0,
+        pointerDownY = 0,
+        pointerDownTime = 0;
+
       function onPointerDown(e) {
-        if (isWaitingForBookClick) {
-          mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
-          mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
-
-          raycaster.setFromCamera(mouse, camera);
-          const intersects = raycaster.intersectObjects(
-            bookGroup.children,
-            true,
-          );
-
-          if (intersects.length > 0) {
-            onBookClicked();
-          }
-          return;
-        }
+        isPointerActive = true;
+        pointerDownX = e.clientX;
+        pointerDownY = e.clientY;
+        pointerDownTime = performance.now();
+        lastBrushPoint = null;
 
         if (
           interactiveBookGroup &&
@@ -1392,7 +1709,43 @@
         }
       }
 
+      function onPointerMove(e) {
+        if (!isPointerActive || !isWaitingForBookClick) return;
+        brushFoamAt(e.clientX, e.clientY);
+      }
+
+      function onPointerUp(e) {
+        const wasActive = isPointerActive;
+        isPointerActive = false;
+        lastBrushPoint = null;
+
+        if (!wasActive || !isWaitingForBookClick) return;
+
+        // Only a quick, small movement counts as a tap on the book —
+        // anything larger was a wipe drag, not a press.
+        const moved = Math.hypot(e.clientX - pointerDownX, e.clientY - pointerDownY);
+        const elapsed = performance.now() - pointerDownTime;
+        if (moved > 10 || elapsed > 400) return;
+
+        mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+        mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+        raycaster.setFromCamera(mouse, camera);
+        const intersects = raycaster.intersectObjects(bookGroup.children, true);
+
+        if (intersects.length > 0) {
+          if (isBookUnlocked()) {
+            onBookClicked();
+          } else {
+            indicateFoamLocked();
+          }
+        }
+      }
+
       window.addEventListener("pointerdown", onPointerDown);
+      window.addEventListener("pointermove", onPointerMove);
+      window.addEventListener("pointerup", onPointerUp);
+      window.addEventListener("pointercancel", onPointerUp);
 
       function positionForScreen() {
         if (
