@@ -622,14 +622,14 @@
       // ---------------------------------------------------------------
       // Interactive Foam Ball Pit — fills the open box and buries the book
       // ---------------------------------------------------------------
-      const FOAM_COUNT = 200; // how many foam balls to simulate
+      const FOAM_COUNT = 250; // how many foam balls to simulate
       const FOAM_RADIUS = 0.1; // ball radius (world units)
       const FOAM_GRAVITY = 6.2; // gentle fall speed — foam is lightweight
       const FOAM_AIR_DAMP = 0.95; // per-frame velocity damping
       const FOAM_BOUNCE = 0.05; // how bouncy foam is on landing (low = soft)
       // How much of the book must be uncovered before it can be pressed.
-      // Easy to tune: 0.75 = 75% of the book's surface must be visible.
-      const BOOK_UNLOCK_UNCOVERED_RATIO = 0.75;
+      // Easy to tune: 0.97 = 97% of the book's surface must be visible.
+      const BOOK_UNLOCK_UNCOVERED_RATIO = 0.97;
 
       // Interior cavity of the box, derived from the box geometry above so
       // foam always stays perfectly contained (never clips through walls).
@@ -945,11 +945,17 @@
       }
       addEventListener("resize", resize);
 
+      // Declared early: render() below runs once synchronously at load
+      // time, and it reads these — they must exist before that happens.
+      let videoPageRefs = [];
+      let videoRedrawAccum = 0;
+
       const foamClock = new THREE.Clock();
       function render() {
         controls.update();
         const dt = Math.min(foamClock.getDelta(), 0.033);
         updateFoamPhysics(dt);
+        updateVideoPages(dt);
         renderer.render(scene, camera);
         requestAnimationFrame(render);
       }
@@ -1202,34 +1208,256 @@
       let isFlipping = false;
       const interactiveBookRaycaster = new THREE.Raycaster();
 
+      function pic(seed, w, h) {
+        return `https://picsum.photos/seed/${seed}/${w}/${h}`;
+      }
+
+      // Each memory now drives a page "layout" instead of an emoji glyph.
       const memories = [
         {
-          emoji: "🌷",
+          layout: "image-text",
           title: "Where It All Began",
           text: "Every grand adventure starts with a single step and a bright smile. Here's to day one of forever.",
+          image: pic("memory-first-day", 420, 260),
         },
         {
-          emoji: "🍕",
-          title: "Late Night Pizza & Laughter",
-          text: "The simplest moments become our fondest memories. Cold slices, warm hearts, and endless late-night talks.",
+          layout: "portrait",
+          title: "Dressed Up & Dreaming Big",
+          text: "That night we felt unstoppable — just us, dressed up, and dancing through the evening.",
+          image: pic("memory-portrait-one", 340, 460),
         },
         {
-          emoji: "☕",
-          title: "Cozy Morning Coffee",
-          text: "Waking up knowing we get to share another beautiful day together. Nothing beats that feeling.",
+          layout: "landscape",
+          title: "Chasing Sunsets Together",
+          text: "Somewhere on the road, watching the sky turn gold, wishing that drive never had to end.",
+          image: pic("memory-sunset-drive", 460, 260),
         },
         {
-          emoji: "✈️",
+          layout: "grid",
+          title: "Little Moments, Big Love",
+          text: "A handful of the small, silly, in-between moments that somehow became our favorites.",
+          images: [
+            pic("memory-grid-a", 220, 220),
+            pic("memory-grid-b", 220, 220),
+            pic("memory-grid-c", 220, 220),
+            pic("memory-grid-d", 220, 220),
+          ],
+        },
+        {
+          layout: "text-only",
+          title: "A Little Note",
+          text: "You make ordinary days feel like something worth remembering. Thank you for every laugh, every hand held, and every memory still waiting to happen.",
+        },
+        {
+          layout: "video",
+          title: "A Moment, Still Moving",
+          text: "Some memories don't sit still — here's one caught mid-motion.",
+          video:
+            "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
+        },
+        {
+          layout: "portrait",
           title: "Our Unforgettable Trip",
           text: "Exploring new horizons, getting lost in back alleys, and capturing unforgettable sunsets.",
+          image: pic("memory-portrait-two", 340, 460),
         },
         {
-          emoji: "🎂",
-          title: "Happy Birthday Beautiful!",
           isEnding: true,
-          text: "Happy birthday, beautiful! The rest of your memories are waiting in the gift box. ♥",
+          title: "Happy Birthday Beautiful!",
+          text: "The rest of your memories are waiting in the gift box. ♥",
         },
       ];
+
+      // --- Image preloading (random photos, sourced from Picsum Photos) ---
+      const loadedImages = new Map();
+
+      function loadImage(url) {
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => resolve(img);
+          img.onerror = () => resolve(null);
+          img.src = url;
+        });
+      }
+
+      function preloadMemoryImages(memoryList) {
+        const urls = new Set();
+        memoryList.forEach((m) => {
+          if (m.image) urls.add(m.image);
+          if (m.images) m.images.forEach((u) => urls.add(u));
+        });
+        return Promise.all(
+          Array.from(urls).map((url) =>
+            loadImage(url).then((img) => loadedImages.set(url, img)),
+          ),
+        );
+      }
+
+      function getMediaNaturalSize(media) {
+        if (media.videoWidth) {
+          return { w: media.videoWidth, h: media.videoHeight };
+        }
+        return {
+          w: media.naturalWidth || media.width,
+          h: media.naturalHeight || media.height,
+        };
+      }
+
+      // Draws an image/video into a rect using "cover" fit (crop overflow),
+      // same idea as CSS background-size: cover.
+      function drawImageCover(ctx, media, x, y, w, h) {
+        const size = getMediaNaturalSize(media);
+        if (!size.w || !size.h) return;
+        const scale = Math.max(w / size.w, h / size.h);
+        const sw = w / scale;
+        const sh = h / scale;
+        const sx = (size.w - sw) / 2;
+        const sy = (size.h - sh) / 2;
+        ctx.drawImage(media, sx, sy, sw, sh, x, y, w, h);
+      }
+
+      function wrapText(ctx, text, cx, startY, maxWidth, lineHeight) {
+        const words = text.split(" ");
+        let line = "";
+        let y = startY;
+        for (let i = 0; i < words.length; i++) {
+          const testLine = line + words[i] + " ";
+          if (ctx.measureText(testLine).width > maxWidth && i > 0) {
+            ctx.fillText(line, cx, y);
+            line = words[i] + " ";
+            y += lineHeight;
+          } else {
+            line = testLine;
+          }
+        }
+        ctx.fillText(line, cx, y);
+        return y;
+      }
+
+      // --- Simple decorative doodles: flowers & teddy bears, no emoji ---
+      const pageAccentColors = [
+        "#cd3c57",
+        "#a54252",
+        "#8a6d3b",
+        "#5c7a5c",
+        "#7c5295",
+        "#c17a3c",
+      ];
+
+      function drawFlowerDoodle(ctx, cx, cy, size, color, rotation = 0) {
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(rotation);
+        ctx.fillStyle = color;
+        const petals = 5;
+        for (let i = 0; i < petals; i++) {
+          ctx.save();
+          ctx.rotate((i / petals) * Math.PI * 2);
+          ctx.beginPath();
+          ctx.ellipse(
+            0,
+            -size * 0.55,
+            size * 0.3,
+            size * 0.52,
+            0,
+            0,
+            Math.PI * 2,
+          );
+          ctx.fill();
+          ctx.restore();
+        }
+        ctx.beginPath();
+        ctx.arc(0, 0, size * 0.26, 0, Math.PI * 2);
+        ctx.fillStyle = "#ffd244";
+        ctx.fill();
+        ctx.restore();
+      }
+
+      function drawTeddyDoodle(ctx, cx, cy, size, color, rotation = 0) {
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(rotation);
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(-size * 0.38, -size * 0.55, size * 0.22, 0, Math.PI * 2);
+        ctx.arc(size * 0.38, -size * 0.55, size * 0.22, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(0, -size * 0.22, size * 0.42, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(0, size * 0.4, size * 0.5, size * 0.42, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(-size * 0.56, size * 0.22, size * 0.17, 0, Math.PI * 2);
+        ctx.arc(size * 0.56, size * 0.22, size * 0.17, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      // Scatters faint flower/teddy doodles across the page background,
+      // plus one clearly visible "sticker" doodle in a random corner —
+      // a different, randomized little design on every page.
+      function drawPageDecoration(ctx, canvas, accentColor) {
+        ctx.save();
+        ctx.globalAlpha = 0.09;
+        const doodleCount = 6 + Math.floor(Math.random() * 3);
+        for (let i = 0; i < doodleCount; i++) {
+          const x = 40 + Math.random() * (canvas.width - 80);
+          const y = 40 + Math.random() * (canvas.height - 80);
+          const size = 40 + Math.random() * 50;
+          const rotation = Math.random() * Math.PI * 2;
+          if (Math.random() > 0.5) {
+            drawFlowerDoodle(ctx, x, y, size, accentColor, rotation);
+          } else {
+            drawTeddyDoodle(ctx, x, y, size, "#8a6d3b", rotation);
+          }
+        }
+        ctx.restore();
+
+        ctx.save();
+        ctx.globalAlpha = 0.9;
+        const corners = [
+          [50, 50],
+          [canvas.width - 50, 50],
+          [50, canvas.height - 50],
+          [canvas.width - 50, canvas.height - 50],
+        ];
+        const [cx, cy] = corners[Math.floor(Math.random() * corners.length)];
+        const rot = (Math.random() - 0.5) * 0.6;
+        if (Math.random() > 0.5) {
+          drawFlowerDoodle(ctx, cx, cy, 34, accentColor, rot);
+        } else {
+          drawTeddyDoodle(ctx, cx, cy, 34, "#a5673f", rot);
+        }
+        ctx.restore();
+      }
+
+      // --- Live video page support ---
+
+      function updateVideoPages(dt) {
+        if (videoPageRefs.length === 0) return;
+        videoRedrawAccum += dt;
+        if (videoRedrawAccum < 0.1) return;
+        videoRedrawAccum = 0;
+        for (const ref of videoPageRefs) {
+          if (ref.video.readyState >= 2) {
+            drawImageCover(
+              ref.ctx,
+              ref.video,
+              ref.rect.x,
+              ref.rect.y,
+              ref.rect.w,
+              ref.rect.h,
+            );
+            ref.ctx.strokeStyle = ref.accent;
+            ref.ctx.lineWidth = 3;
+            ref.ctx.strokeRect(ref.rect.x, ref.rect.y, ref.rect.w, ref.rect.h);
+            ref.texture.needsUpdate = true;
+          }
+        }
+      }
 
       function createCoverCanvasTexture() {
         const canvas = document.createElement("canvas");
@@ -1282,14 +1510,21 @@
         ctx.fillStyle = "#fff8e9";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+        const accent =
+          pageAccentColors[Math.floor(Math.random() * pageAccentColors.length)];
+
+        drawPageDecoration(ctx, canvas, accent);
+
         ctx.strokeStyle = "#e2d2b4";
         ctx.lineWidth = 4;
         ctx.strokeRect(16, 16, canvas.width - 32, canvas.height - 32);
 
+        ctx.textAlign = "center";
+        ctx.textBaseline = "alphabetic";
+
         if (!content) {
           ctx.fillStyle = "#a54252";
           ctx.font = "italic 32px 'DM Serif Display', serif";
-          ctx.textAlign = "center";
           ctx.fillText(
             "Our Memory Journal",
             canvas.width / 2,
@@ -1303,7 +1538,6 @@
         if (content.isEnding) {
           ctx.fillStyle = "#a54252";
           ctx.font = "500 16px 'DM Mono', monospace";
-          ctx.textAlign = "center";
           ctx.fillText("YOU MADE IT INSIDE", canvas.width / 2, 140);
 
           ctx.fillStyle = "#2b1917";
@@ -1316,78 +1550,171 @@
 
           ctx.fillStyle = "#2b1917";
           ctx.font = "bold 20px 'Nunito', sans-serif";
-          const words =
-            "The rest of your memories are waiting in the gift box. ♥".split(
-              " ",
-            );
-          let line = "";
-          let y = 380;
-          for (let i = 0; i < words.length; i++) {
-            let testLine = line + words[i] + " ";
-            if (ctx.measureText(testLine).width > 380 && i > 0) {
-              ctx.fillText(line, canvas.width / 2, y);
-              line = words[i] + " ";
-              y += 32;
-            } else {
-              line = testLine;
-            }
-          }
-          ctx.fillText(line, canvas.width / 2, y);
+          wrapText(ctx, content.text, canvas.width / 2, 380, 380, 32);
 
-          ctx.font = "44px sans-serif";
-          ctx.fillText("🧸  🌷  ❤️  🌼", canvas.width / 2, 580);
+          const rowY = 580;
+          const spacing = 92;
+          const icons = [
+            { type: "teddy", color: "#a5673f" },
+            { type: "flower", color: "#cd3c57" },
+            { type: "flower", color: "#ffd244" },
+            { type: "teddy", color: "#8a6d3b" },
+          ];
+          const startX = canvas.width / 2 - ((icons.length - 1) * spacing) / 2;
+          icons.forEach((ic, idx) => {
+            const x = startX + idx * spacing;
+            if (ic.type === "teddy")
+              drawTeddyDoodle(ctx, x, rowY, 42, ic.color);
+            else drawFlowerDoodle(ctx, x, rowY, 42, ic.color);
+          });
 
           const texture = new THREE.CanvasTexture(canvas);
           texture.colorSpace = THREE.SRGBColorSpace;
           return texture;
         }
 
-        ctx.fillStyle = "#ffd6c3";
-        ctx.lineWidth = 2;
-        ctx.strokeStyle = "#2b1917";
-        ctx.fillRect(66, 60, 380, 280);
-        ctx.strokeRect(66, 60, 380, 280);
-
-        ctx.font = "110px sans-serif";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(content.emoji, canvas.width / 2, 200);
-
-        ctx.textBaseline = "alphabetic";
-        ctx.fillStyle = "#2b1917";
-        ctx.font = "bold 28px 'DM Serif Display', serif";
-        ctx.fillText(content.title, canvas.width / 2, 400);
-
-        ctx.strokeStyle = "#cd3c57";
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(canvas.width / 2 - 40, 420);
-        ctx.lineTo(canvas.width / 2 + 40, 420);
-        ctx.stroke();
-
-        ctx.fillStyle = "#4a2d2b";
-        ctx.font = "bold 20px 'Nunito', sans-serif";
-        const words = content.text.split(" ");
-        let line = "";
-        let y = 470;
-        for (let i = 0; i < words.length; i++) {
-          let testLine = line + words[i] + " ";
-          if (ctx.measureText(testLine).width > 380 && i > 0) {
-            ctx.fillText(line, canvas.width / 2, y);
-            line = words[i] + " ";
-            y += 30;
-          } else {
-            line = testLine;
-          }
+        function drawTitle(y) {
+          ctx.fillStyle = accent;
+          ctx.font = "bold 26px 'DM Serif Display', serif";
+          ctx.fillText(content.title, canvas.width / 2, y);
         }
-        ctx.fillText(line, canvas.width / 2, y);
+        function drawFooter() {
+          ctx.fillStyle = "#a54252";
+          ctx.font = "16px 'DM Mono', monospace";
+          ctx.fillText(`— ${pageNum} —`, canvas.width / 2, 680);
+        }
+        function drawImageRect(rect, imgUrl) {
+          const img = imgUrl ? loadedImages.get(imgUrl) : null;
+          ctx.fillStyle = "#f1e2d6";
+          ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+          if (img) {
+            drawImageCover(ctx, img, rect.x, rect.y, rect.w, rect.h);
+          } else {
+            drawFlowerDoodle(
+              ctx,
+              rect.x + rect.w / 2,
+              rect.y + rect.h / 2,
+              Math.min(rect.w, rect.h) * 0.4,
+              "#e3b7bd",
+            );
+          }
+          ctx.strokeStyle = accent;
+          ctx.lineWidth = 3;
+          ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+        }
 
-        ctx.fillStyle = "#a54252";
-        ctx.font = "16px 'DM Mono', monospace";
-        ctx.fillText(`— ${pageNum} —`, canvas.width / 2, 665);
+        let videoRefPending = null;
+
+        if (content.layout === "portrait") {
+          const rect = { x: 96, y: 46, w: 320, h: 430 };
+          drawImageRect(rect, content.image);
+          drawTitle(510);
+          ctx.fillStyle = "#4a2d2b";
+          ctx.font = "bold 18px 'Nunito', sans-serif";
+          wrapText(ctx, content.text, canvas.width / 2, 540, 380, 26);
+          drawFooter();
+        } else if (content.layout === "landscape") {
+          drawTitle(90);
+          const rect = { x: 40, y: 130, w: 432, h: 230 };
+          drawImageRect(rect, content.image);
+          ctx.fillStyle = "#4a2d2b";
+          ctx.font = "bold 18px 'Nunito', sans-serif";
+          wrapText(ctx, content.text, canvas.width / 2, 400, 380, 26);
+          drawFooter();
+        } else if (content.layout === "grid") {
+          drawTitle(78);
+          const rect = { x: 56, y: 100, w: 400, h: 300 };
+          const gap = 10;
+          const cellW = (rect.w - gap) / 2;
+          const cellH = (rect.h - gap) / 2;
+          const cells = [
+            { x: rect.x, y: rect.y },
+            { x: rect.x + cellW + gap, y: rect.y },
+            { x: rect.x, y: rect.y + cellH + gap },
+            { x: rect.x + cellW + gap, y: rect.y + cellH + gap },
+          ];
+          const imgs = content.images || [];
+          cells.forEach((cell, idx) => {
+            drawImageRect(
+              { x: cell.x, y: cell.y, w: cellW, h: cellH },
+              imgs[idx],
+            );
+          });
+          ctx.fillStyle = "#4a2d2b";
+          ctx.font = "bold 18px 'Nunito', sans-serif";
+          wrapText(ctx, content.text, canvas.width / 2, 435, 380, 26);
+          drawFooter();
+        } else if (content.layout === "video") {
+          drawTitle(90);
+          const rect = { x: 66, y: 116, w: 380, h: 250 };
+          const gradient = ctx.createLinearGradient(
+            rect.x,
+            rect.y,
+            rect.x,
+            rect.y + rect.h,
+          );
+          gradient.addColorStop(0, "#f6d9c9");
+          gradient.addColorStop(1, "#e9b9c4");
+          ctx.fillStyle = gradient;
+          ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+          ctx.strokeStyle = accent;
+          ctx.lineWidth = 3;
+          ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+
+          const video = document.createElement("video");
+          video.src = content.video;
+          video.crossOrigin = "anonymous";
+          video.loop = true;
+          video.muted = true;
+          video.playsInline = true;
+          video.autoplay = true;
+          video.style.cssText =
+            "position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;top:0;left:0;";
+          document.body.appendChild(video);
+          video.play().catch(() => {});
+
+          videoRefPending = { rect, video, accent };
+
+          ctx.fillStyle = "#4a2d2b";
+          ctx.font = "bold 18px 'Nunito', sans-serif";
+          wrapText(ctx, content.text, canvas.width / 2, 400, 380, 26);
+          drawFooter();
+        } else if (content.layout === "text-only") {
+          drawTitle(220);
+          ctx.strokeStyle = accent;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(canvas.width / 2 - 50, 245);
+          ctx.lineTo(canvas.width / 2 + 50, 245);
+          ctx.stroke();
+
+          ctx.fillStyle = "#4a2d2b";
+          ctx.font = "italic 22px 'Nunito', sans-serif";
+          wrapText(ctx, content.text, canvas.width / 2, 320, 380, 34);
+
+          drawFlowerDoodle(ctx, canvas.width / 2, 560, 60, accent);
+          drawFooter();
+        } else {
+          // default "image-text" layout
+          const rect = { x: 56, y: 60, w: 400, h: 260 };
+          drawImageRect(rect, content.image);
+          drawTitle(340);
+          ctx.fillStyle = "#4a2d2b";
+          ctx.font = "bold 18px 'Nunito', sans-serif";
+          wrapText(ctx, content.text, canvas.width / 2, 375, 380, 26);
+          drawFooter();
+        }
 
         const texture = new THREE.CanvasTexture(canvas);
         texture.colorSpace = THREE.SRGBColorSpace;
+
+        if (videoRefPending) {
+          videoRefPending.ctx = ctx;
+          videoRefPending.canvas = canvas;
+          videoRefPending.texture = texture;
+          videoPageRefs.push(videoRefPending);
+        }
+
         return texture;
       }
 
@@ -1554,7 +1881,11 @@
         interactiveBookGroup.visible = false;
       }
 
-      buildInteractiveBook();
+      // Build the book once the random photos have finished loading, so
+      // every page's texture is ready before the user can ever see it.
+      preloadMemoryImages(memories).then(() => {
+        buildInteractiveBook();
+      });
 
       function flipToNextPage() {
         if (isFlipping) return;
@@ -1723,7 +2054,10 @@
 
         // Only a quick, small movement counts as a tap on the book —
         // anything larger was a wipe drag, not a press.
-        const moved = Math.hypot(e.clientX - pointerDownX, e.clientY - pointerDownY);
+        const moved = Math.hypot(
+          e.clientX - pointerDownX,
+          e.clientY - pointerDownY,
+        );
         const elapsed = performance.now() - pointerDownTime;
         if (moved > 10 || elapsed > 400) return;
 
